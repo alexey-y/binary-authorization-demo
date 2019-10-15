@@ -1,0 +1,285 @@
+#!/usr/bin/env bash
+
+# Copyright 2019 the Authors
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+#
+# This script prepares a blank GCP project to run the rest of the scripts.
+#
+
+set -eEuo pipefail
+
+#
+# Variables setup
+#
+
+export PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" \
+  --format='value(projectNumber)')"
+
+export CLOUD_BUILD_SA_EMAIL="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
+
+
+
+#
+# Enable required services
+#
+
+gcloud services enable --project "${PROJECT_ID}" \
+  binaryauthorization.googleapis.com \
+  cloudbuild.googleapis.com \
+  cloudkms.googleapis.com \
+  cloudresourcemanager.googleapis.com \
+  container.googleapis.com \
+  containerregistry.googleapis.com \
+  containeranalysis.googleapis.com \
+  containerscanning.googleapis.com \
+  compute.googleapis.com \
+  run.googleapis.com \
+  sourcerepo.googleapis.com
+
+
+#
+# Enable os-login across the project
+#
+
+gcloud compute project-info add-metadata \
+  --project "${PROJECT_ID}" \
+  --metadata "enable-oslogin=TRUE"
+
+
+#
+# Create the cluster
+#
+
+gcloud beta container clusters create "my-cluster" \
+  --project "${PROJECT_ID}" \
+  --machine-type "n1-standard-1" \
+  --region "us-central1" \
+  --num-nodes "1" \
+  --enable-binauthz
+
+
+#
+# Create KMS setup
+#
+
+gcloud kms keyrings create "binauthz" \
+  --project "${PROJECT_ID}" \
+  --location "${REGION}"
+
+gcloud kms keys create "qa-signer" \
+  --project "${PROJECT_ID}" \
+  --location "${REGION}" \
+  --keyring "binauthz" \
+  --purpose "asymmetric-signing" \
+  --default-algorithm "rsa-sign-pkcs1-4096-sha512"
+
+
+#
+# Create QA note
+#
+
+curl "https://containeranalysis.googleapis.com/v1/projects/${PROJECT_ID}/notes/?noteId=qa-note" \
+  --request "POST" \
+  --header "Content-Type: application/json" \
+  --header "Authorization: Bearer $(gcloud auth print-access-token)" \
+  --header "X-Goog-User-Project: ${PROJECT_ID}" \
+  --data-binary @- <<EOF
+    {
+      "name": "projects/${PROJECT_ID}/notes/qa-note",
+      "attestation": {
+        "hint": {
+          "human_readable_name": "QA note"
+        }
+      }
+    }
+EOF
+
+
+#
+# Grant Cloud Build the ability to view QA notes
+#
+
+curl "https://containeranalysis.googleapis.com/v1beta1/projects/${PROJECT_ID}/notes/qa-note:setIamPolicy" \
+  --request POST \
+  --header "Content-Type: application/json" \
+  --header "Authorization: Bearer $(gcloud auth print-access-token)" \
+  --header "X-Goog-User-Project: ${PROJECT_ID}" \
+  --data-binary @- <<EOF
+    {
+      "resource": "projects/${PROJECT_ID}/notes/qa-note",
+      "policy": {
+        "bindings": [
+          {
+            "role": "roles/containeranalysis.notes.occurrences.viewer",
+            "members": [
+              "serviceAccount:${CLOUD_BUILD_SA_EMAIL}"
+            ]
+          },
+          {
+            "role": "roles/containeranalysis.notes.attacher",
+            "members": [
+              "serviceAccount:${CLOUD_BUILD_SA_EMAIL}"
+            ]
+          }
+        ]
+      }
+    }
+EOF
+
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --project "${PROJECT_ID}" \
+  --member "serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+  --role "roles/containeranalysis.occurrences.viewer"
+
+gcloud container binauthz attestors add-iam-policy-binding "qa-attestor" \
+  --project "${PROJECT_ID}" \
+  --member "serviceAccount:${CLOUD_BUILD_SA_EMAIL}" \
+  --role "roles/binaryauthorization.attestorsVerifier"
+
+#
+# Grant Cloud Build the ability to deploy to GKE
+#
+# This isn't actually used in this demo, but a logical next step is to have
+# Cloud Build deploy directly after attestation.
+#
+
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member "serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+  --role "roles/container.developer"
+
+
+#
+# Create the attestor
+#
+
+gcloud container binauthz attestors create "qa-attestor" \
+  --project "${PROJECT_ID}" \
+  --attestation-authority-note-project "${PROJECT_ID}" \
+  --attestation-authority-note "qa-note" \
+  --description "QA attestor"
+
+gcloud beta container binauthz attestors public-keys add \
+  --project "${PROJECT_ID}" \
+  --attestor "qa-attestor" \
+  --keyversion "1" \
+  --keyversion-key "qa-signer" \
+  --keyversion-keyring "binauthz" \
+  --keyversion-location "${REGION}" \
+  --keyversion-project "${PROJECT_ID}"
+
+
+#
+# Create a service account that can sign QA attestations
+#
+
+gcloud iam service-accounts create "qa-signer-sa" \
+  --project "${PROJECT_ID}" \
+  --display-name "QA Signing SA"
+
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --project "${PROJECT_ID}" \
+  --member "serviceAccount:qa-signer-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role "roles/editor"
+
+gcloud kms keys add-iam-policy-binding "qa-signer" \
+  --project "${PROJECT_ID}" \
+  --location "${REGION}" \
+  --keyring "binauthz" \
+  --member "serviceAccount:qa-signer-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role "roles/cloudkms.signerVerifier"
+
+gcloud container binauthz attestors add-iam-policy-binding "qa-attestor" \
+  --project "${PROJECT_ID}" \
+  --member "serviceAccount:qa-signer-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --role "roles/binaryauthorization.attestorsVerifier"
+
+curl "https://containeranalysis.googleapis.com/v1beta1/projects/${PROJECT_ID}/notes/qa-note:setIamPolicy" \
+  --request POST \
+  --header "Content-Type: application/json" \
+  --header "Authorization: Bearer $(gcloud auth print-access-token)" \
+  --header "X-Goog-User-Project: ${PROJECT_ID}" \
+  --data-binary @- <<EOF
+    {
+      "resource": "projects/${PROJECT_ID}/notes/qa-note",
+      "policy": {
+        "bindings": [
+          {
+            "role": "roles/containeranalysis.notes.occurrences.viewer",
+            "members": [
+              "serviceAccount:qa-signer-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+            ]
+          },
+          {
+            "role": "roles/containeranalysis.notes.attacher",
+            "members": [
+              "serviceAccount:qa-signer-sa@${PROJECT_ID}.iam.gserviceaccount.com"
+            ]
+          }
+        ]
+      }
+    }
+EOF
+
+
+#
+# Require attestation on the cluster
+#
+
+cat > "/tmp/binauthz-policy.yaml" <<EOF
+admissionWhitelistPatterns:
+- namePattern: docker.io/istio/*
+defaultAdmissionRule:
+  enforcementMode: ENFORCED_BLOCK_AND_AUDIT_LOG
+  evaluationMode: ALWAYS_DENY
+globalPolicyEvaluationMode: ENABLE
+clusterAdmissionRules:
+  ${REGION}.my-cluster:
+    evaluationMode: REQUIRE_ATTESTATION
+    enforcementMode: ENFORCED_BLOCK_AND_AUDIT_LOG
+    requireAttestationsBy:
+    - projects/${PROJECT_ID}/attestors/qa-attestor
+EOF
+
+gcloud beta container binauthz policy import "/tmp/binauthz-policy.yaml" \
+  --project "${PROJECT_ID}"
+
+rm -f "/tmp/binauthz-policy.yaml"
+
+
+#
+# Build the QA signer service
+#
+
+gcloud builds submit \
+  --project "${PROJECT_ID}" \
+  --tag "gcr.io/${PROJECT_ID}/qa-verifier" \
+  ./qa-verifier
+
+
+#
+# Deploy the QA signer service
+#
+
+ENVVARS="ATTESTOR=projects/${PROJECT_ID}/attestors/qa-attestor"
+ENVVARS="${ENVVARS},KMS_KEY_VERSION=projects/${PROJECT_ID}/locations/${REGION}/keyRings/binauthz/cryptoKeys/qa-signer/cryptoKeyVersions/1"
+
+gcloud beta run deploy "qa-verifier" \
+  --project "${PROJECT_ID}" \
+  --allow-unauthenticated \
+  --platform "managed" \
+  --region "${REGION}" \
+  --service-account "qa-signer-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
+  --set-env-vars="${ENVVARS}" \
+  --image "gcr.io/${PROJECT_ID}/qa-verifier"
