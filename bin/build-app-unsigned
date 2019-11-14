@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -eEuo pipefail
+
+gcloud builds submit \
+  --project "${PROJECT_ID}"\
+  --tag "gcr.io/${PROJECT_ID}/demo-app" \
+  ./demo-app

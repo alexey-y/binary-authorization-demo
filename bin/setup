@@ -143,11 +143,6 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member "serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
   --role "roles/containeranalysis.occurrences.viewer"
 
-gcloud container binauthz attestors add-iam-policy-binding "qa-attestor" \
-  --project "${PROJECT_ID}" \
-  --member "serviceAccount:${CLOUD_BUILD_SA_EMAIL}" \
-  --role "roles/binaryauthorization.attestorsVerifier"
-
 #
 # Grant Cloud Build the ability to deploy to GKE
 #
@@ -178,6 +173,11 @@ gcloud beta container binauthz attestors public-keys add \
   --keyversion-keyring "binauthz" \
   --keyversion-location "${REGION}" \
   --keyversion-project "${PROJECT_ID}"
+
+gcloud container binauthz attestors add-iam-policy-binding "qa-attestor" \
+  --project "${PROJECT_ID}" \
+  --member "serviceAccount:${CLOUD_BUILD_SA_EMAIL}" \
+  --role "roles/binaryauthorization.attestorsVerifier"
 
 
 #

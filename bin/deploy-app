@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -eEuo pipefail
+
+IMAGE="${1:-""}"
+if [ -z "${IMAGE}" ]; then
+  echo "Usage: $(basename ${0}) IMAGE"
+  exit 1
+fi
+
+CONTEXT="gke_${PROJECT_ID}_${REGION}_my-cluster"
+
+kubectl --context "${CONTEXT}" apply -f - <<EOF
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-app
+  labels:
+    app: demo-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-app
+  template:
+    metadata:
+      labels:
+        app: demo-app
+    spec:
+      containers:
+      - name: demo-app
+        image: ${IMAGE}
+        ports:
+        - containerPort: 8080
+EOF

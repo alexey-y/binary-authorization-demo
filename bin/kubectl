@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+CONTEXT="gke_${PROJECT_ID}_${REGION}_my-cluster"
+
+kubectl --context "${CONTEXT}" "$@"
