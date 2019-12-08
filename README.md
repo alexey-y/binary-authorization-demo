@@ -45,7 +45,7 @@ the platform by requiring verification via attestors.
 1.  Delete the deployment:
 
     ```sh
-    ./kubectl delete deployment demo-app
+    ./bin/kubectl delete deployment demo-app
     ```
 
 1.  Submit the demo application for CI/CD:
