@@ -73,7 +73,7 @@ gcloud compute project-info add-metadata \
 gcloud beta container clusters create "my-cluster" \
   --project "${PROJECT_ID}" \
   --machine-type "n1-standard-1" \
-  --region "us-central1" \
+  --region "${REGION}" \
   --num-nodes "1" \
   --no-enable-ip-alias \
   --no-enable-autoupgrade \
