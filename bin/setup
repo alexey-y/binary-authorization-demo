@@ -151,7 +151,7 @@ EOF
 
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --project "${PROJECT_ID}" \
-  --member "serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+  --member "serviceAccount:${CLOUD_BUILD_SA_EMAIL}" \
   --role "roles/containeranalysis.occurrences.viewer"
 
 #
