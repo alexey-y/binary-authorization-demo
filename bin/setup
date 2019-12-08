@@ -29,6 +29,11 @@ export PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" \
 
 export CLOUD_BUILD_SA_EMAIL="${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com"
 
+# Cloud Run is only available in select regions right now
+case ${REGION} in
+  asia-northeast1|europe-west1|us-central1|us-east1) ;;
+  *) echo "invalid region"&& exit 1 ;;
+esac
 
 
 #
