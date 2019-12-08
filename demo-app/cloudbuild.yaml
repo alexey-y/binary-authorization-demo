@@ -33,7 +33,7 @@ steps:
   timeout: "500s"
   entrypoint: "/bin/bash"
   args:
-  - "-e"
+  - "-eEu"
   - "-c"
   - |-
       FULLY_QUALIFIED_IMAGE=$(gcloud container images describe --format 'value(image_summary.fully_qualified_digest)' gcr.io/$PROJECT_ID/demo-app:$BUILD_ID)
@@ -42,10 +42,10 @@ steps:
         echo "Awaiting verification of image $${FULLY_QUALIFIED_IMAGE}, verify the image at ${_QA_SERVICE_URL}?image=$${FULLY_QUALIFIED_IMAGE}"
 
         OUT=$(gcloud beta container binauthz attestations list \
-        --project "${PROJECT_ID}" \
-        --attestor "qa-attestor" \
-        --attestor-project "${PROJECT_ID}" \
-        --artifact-url "$${FULLY_QUALIFIED_IMAGE}" 2>&1)
+          --project "${PROJECT_ID}" \
+          --attestor "qa-attestor" \
+          --attestor-project "${PROJECT_ID}" \
+          --artifact-url "$${FULLY_QUALIFIED_IMAGE}")
 
         if [[ $${OUT} == *"${_KMS_KEY_VERSION}"* ]]; then
           echo "Image verified!"
