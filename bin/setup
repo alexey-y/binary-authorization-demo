@@ -149,6 +149,8 @@ curl "https://containeranalysis.googleapis.com/v1beta1/projects/${PROJECT_ID}/no
     }
 EOF
 
+# TODO: figure out why this needs to be run again?
+
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --project "${PROJECT_ID}" \
   --member "serviceAccount:${CLOUD_BUILD_SA_EMAIL}" \
@@ -162,7 +164,8 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
 #
 
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-  --member "serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com" \
+  --project "${PROJECT_ID}" \
+  --member "serviceAccount:${CLOUD_BUILD_SA_EMAIL}" \
   --role "roles/container.developer"
 
 
