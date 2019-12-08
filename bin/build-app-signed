@@ -24,11 +24,14 @@ pushd ./demo-app &>/dev/null
 
 SUBS="_QA_SERVICE_URL=$(gcloud run services describe "qa-verifier" \
   --project "${PROJECT_ID}" \
-  --platform managed \
+  --platform "managed" \
   --region "${REGION}" \
   --format 'value(status.url)')"
 SUBS="${SUBS},_KMS_KEY_VERSION=projects/${PROJECT_ID}/locations/${REGION}/keyRings/binauthz/cryptoKeys/qa-signer/cryptoKeyVersions/1"
 
 gcloud builds submit \
   --project "${PROJECT_ID}" \
-  --substitutions "${SUBS}"
+  --substitutions "${SUBS}" \
+  .
+
+popd &>/dev/null
