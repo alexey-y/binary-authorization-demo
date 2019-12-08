@@ -22,7 +22,7 @@ set -eEuo pipefail
 
 pushd ./demo-app &>/dev/null
 
-SUBS="_QA_SERVICE_URL=$(gcloud beta run services describe "qa-verifier" \
+SUBS="_QA_SERVICE_URL=$(gcloud run services describe "qa-verifier" \
   --project "${PROJECT_ID}" \
   --platform managed \
   --region "${REGION}" \
