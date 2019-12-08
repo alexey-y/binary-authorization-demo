@@ -273,11 +273,14 @@ rm -f "/tmp/binauthz-policy.yaml"
 # Build the QA signer service
 #
 
+pushd ./qa-verifier &>/dev/null
+
 gcloud builds submit \
   --project "${PROJECT_ID}" \
   --tag "gcr.io/${PROJECT_ID}/qa-verifier" \
-  ./qa-verifier
+  .
 
+popd &>/dev/null
 
 #
 # Deploy the QA signer service
@@ -286,7 +289,7 @@ gcloud builds submit \
 ENVVARS="ATTESTOR=projects/${PROJECT_ID}/attestors/qa-attestor"
 ENVVARS="${ENVVARS},KMS_KEY_VERSION=projects/${PROJECT_ID}/locations/${REGION}/keyRings/binauthz/cryptoKeys/qa-signer/cryptoKeyVersions/1"
 
-gcloud beta run deploy "qa-verifier" \
+gcloud run deploy "qa-verifier" \
   --project "${PROJECT_ID}" \
   --allow-unauthenticated \
   --platform "managed" \
