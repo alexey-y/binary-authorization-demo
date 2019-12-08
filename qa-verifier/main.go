@@ -15,24 +15,27 @@
 package main
 
 import (
+	"context"
+	"crypto/sha512"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
+	"strings"
 )
 
 var (
-	attestor      = os.Getenv("ATTESTOR")
-	kmsKeyVersion = os.Getenv("KMS_KEY_VERSION")
-	port          = os.Getenv("PORT")
+	attestorID      = os.Getenv("ATTESTOR")
+	kmsKeyVersionID = os.Getenv("KMS_KEY_VERSION")
+	port            = os.Getenv("PORT")
 )
 
 func main() {
-	if attestor == "" {
+	if attestorID == "" {
 		log.Fatal("missing ATTESTOR")
 	}
 
-	if kmsKeyVersion == "" {
+	if kmsKeyVersionID == "" {
 		log.Fatal("missing KMS_KEY_VERSION")
 	}
 
@@ -46,11 +49,8 @@ func main() {
 
 	http.HandleFunc("/verify", func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
-			log.Printf("[ERR] %s", err)
-
-			w.Header().Set("Content-Type", "text/html")
-			w.WriteHeader(500)
-			w.Write(errHTML)
+			err = fmt.Errorf("failed to parse form: %w", err)
+			handleError(w, err)
 			return
 		}
 
@@ -64,20 +64,49 @@ func main() {
 			return
 		}
 
-		// Shell out to gcloud. We could do this directly with the API and that's a
-		// future enhancement.
-		cmd := exec.Command("gcloud", "alpha", "container", "binauthz", "attestations", "sign-and-create",
-			"--artifact-url", imageID,
-			"--attestor", attestor,
-			"--keyversion", kmsKeyVersion,
-		)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			log.Printf("[ERR] %s\n\n%s", err, out)
+		ctx := context.Background()
 
-			w.Header().Set("Content-Type", "text/html")
-			w.WriteHeader(500)
-			w.Write(errHTML)
+		// Get the attestor
+		a, err := Attestor(ctx, attestorID)
+		if err != nil {
+			err = fmt.Errorf("failed to lookup attestor: %w", err)
+			handleError(w, err)
+			return
+		}
+
+		// Create digest
+		repo, sha, err := splitDockerRef(imageID)
+		if err != nil {
+			err = fmt.Errorf("failed to parse ref: %w", err)
+			handleError(w, err)
+			return
+		}
+
+		payload, err := PayloadFor(repo, sha)
+		if err != nil {
+			err = fmt.Errorf("failed to generate payload: %w", err)
+			handleError(w, err)
+			return
+		}
+		sum := sha512.Sum512(payload)
+
+		// Sign digest
+		sig, err := KMSSign(ctx, kmsKeyVersionID, &digest{
+			Digest: sha512Digest{
+				SHA512: sum[:],
+			},
+		})
+		if err != nil {
+			err = fmt.Errorf("failed to sign: %w", err)
+			handleError(w, err)
+			return
+		}
+
+		// Create occurrence
+		err = CreateOccurrence(ctx, a.NoteID(), imageID, kmsKeyVersionID, payload, sig.Signature)
+		if err != nil {
+			err = fmt.Errorf("failed to create occurrence: %w", err)
+			handleError(w, err)
 			return
 		}
 
@@ -90,6 +119,28 @@ func main() {
 	})
 
 	log.Fatal(http.ListenAndServe(":"+port, nil))
+}
+
+func handleError(w http.ResponseWriter, err error) {
+	log.Printf("[ERR] %s", err)
+
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(500)
+	w.Write(errHTML)
+}
+
+func splitDockerRef(ref string) (string, string, error) {
+	ref = strings.TrimPrefix(ref, "https://")
+	ref = strings.TrimPrefix(ref, "http://")
+	ref = strings.TrimSuffix(ref, "/")
+
+	parts := strings.SplitN(ref, "@", 2)
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("invalid image ID")
+	}
+
+	repo, sha := strings.Trim(parts[0], "/"), strings.Trim(parts[1], "/")
+	return repo, sha, nil
 }
 
 var indexHTML = []byte(`
@@ -215,6 +266,14 @@ var indexHTML = []byte(`
 			<input type="submit" value="Verify" id="submit">
 		</form>
 	</div>
+
+	<script type="application/javascript">
+		let urlParams = new URLSearchParams(window.location.search);
+		let image = urlParams.get('image');
+		if (image.length > 0) {
+			document.getElementById('imageID').value = image;
+		}
+	</script>
 </body>
 </html>
 `)

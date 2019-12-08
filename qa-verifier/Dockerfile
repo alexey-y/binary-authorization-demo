@@ -33,9 +33,6 @@ RUN go build \
 
 
 
-FROM google/cloud-sdk:alpine
-RUN gcloud components install alpha --quiet
-
+FROM gcr.io/distroless/base
 COPY --from=builder /bin/app /bin/app
-
 ENTRYPOINT ["/bin/app"]
