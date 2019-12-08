@@ -17,9 +17,10 @@ set -eEuo pipefail
 
 pushd ./demo-app &>/dev/null
 
-gcloud builds submit \
-  --project "${PROJECT_ID}"\
-  --tag "gcr.io/${PROJECT_ID}/demo-app" \
+docker build \
+  -t "gcr.io/${PROJECT_ID}/demo-app" \
   .
+
+docker push "gcr.io/${PROJECT_ID}/demo-app"
 
 popd &>/dev/null
