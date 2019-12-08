@@ -67,11 +67,17 @@ gcloud compute project-info add-metadata \
 # Create the cluster
 #
 
+# Disable auto-upgrades for DEMO PURPOSES only. You should enable auto-upgrades
+# in production.
+
 gcloud beta container clusters create "my-cluster" \
   --project "${PROJECT_ID}" \
   --machine-type "n1-standard-1" \
   --region "us-central1" \
   --num-nodes "1" \
+  --no-enable-ip-alias \
+  --no-enable-autoupgrade \
+  --metadata disable-legacy-endpoints=true \
   --enable-binauthz
 
 
