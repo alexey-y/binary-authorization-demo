@@ -19,21 +19,33 @@ ENV GO111MODULE=on \
   GOOS=linux \
   GOARCH=amd64
 
+RUN apt-get -qq update && \
+  apt-get -yqq install upx
+
 WORKDIR /src
 COPY . .
 
 RUN go build \
   -a \
-  -ldflags "-s -w -extldflags 'static'" \
+  -trimpath \
+  -ldflags "-s -w -extldflags '-static'" \
   -installsuffix cgo \
   -tags netgo \
   -mod vendor \
   -o /bin/app \
-  .
+  . \
+  && strip /bin/app \
+  && upx -q -9 /bin/app
+
+RUN echo "nobody:x:65534:65534:Nobody:/:" > /etc_passwd
 
 
 
-FROM gcr.io/distroless/static
-COPY --from=builder /bin/app /bin/app
+FROM scratch
 
-ENTRYPOINT ["/bin/app"]
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /etc_passwd /etc/passwd
+COPY --from=builder --chown=65534:0 /bin/app /app
+
+USER nobody
+ENTRYPOINT ["/app"]
